@@ -1,4 +1,4 @@
-# Advanced Motion Analysis System 
+# Temperature Estimation
 
 ## Installation 
 
