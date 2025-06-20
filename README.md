@@ -1,5 +1,7 @@
 # Temperature Estimation
 
+Here is the app demo: https://temperature-estimation.streamlit.app/
+
 ## Installation 
 
 ```bash
