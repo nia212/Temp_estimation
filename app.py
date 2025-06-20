@@ -1,13 +1,14 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
-from datetime import time
-from interpolasi_newton import NewtonGregoryInterpolator
+from datetime import datetime, time
+from interpolasi_newton import NewtonGregoryInterpolasi
 from utils import load_data, prepare_data, export_to_excel
 
 # Konfigurasi halaman
-st.set_page_config(page_title="Estimasi Suhu Newton-Gregory", page_icon="🌡️", layout="wide")
+st.set_page_config(page_title="Estimasi Suhu Newton-Gregory", 
+                   page_icon="🌡️", 
+                   layout="wide")
 
 # Header
 st.title("🌡️ Estimasi Suhu dengan Interpolasi Newton-Gregory")
@@ -48,36 +49,104 @@ st.sidebar.subheader("Pengaturan Estimasi")
 mode = st.sidebar.selectbox("Mode", ["Waktu Tunggal", "Rentang Waktu"])
 
 if mode == "Waktu Tunggal":
-    target_time = st.sidebar.time_input("Waktu Target", value=time(14, 30))
+    # Batasan waktu berdasarkan data yang ada
+    min_time = df_processed['waktu_decimal'].min()
+    max_time = df_processed['waktu_decimal'].max()
+    
+    # Konversi ke jam dan menit untuk display
+    min_hour = int(min_time)
+    min_minute = int((min_time - min_hour) * 60)
+    max_hour = int(max_time)
+    max_minute = int((max_time - max_hour) * 60)
+    
+    st.sidebar.info(f"Rentang waktu data: {min_hour:02d}:{min_minute:02d} - {max_hour:02d}:{max_minute:02d}")
+    
+    target_time = st.sidebar.time_input(
+        "Waktu Target", 
+        value=time(int((min_time + max_time) / 2), 0),
+        help=f"Pilih waktu antara {min_hour:02d}:{min_minute:02d} dan {max_hour:02d}:{max_minute:02d}"
+    )
+    
+    # Validasi waktu target
+    target_decimal = target_time.hour + target_time.minute/60
+    if target_decimal < min_time or target_decimal > max_time:
+        st.sidebar.warning(f"⚠️ Waktu target di luar rentang data! Hasil mungkin tidak akurat.")
+    
     time_targets = [target_time.strftime("%H:%M")]
 else:
-    start_time = st.sidebar.time_input("Waktu Mulai", value=time(8, 0))
-    end_time = st.sidebar.time_input("Waktu Selesai", value=time(20, 0))
-    interval = st.sidebar.slider("Interval (menit)", 30, 120, 60)
+    # Batasan waktu berdasarkan data yang ada
+    min_time = df_processed['waktu_decimal'].min()
+    max_time = df_processed['waktu_decimal'].max()
     
-    # Generate time range
-    time_targets = []
-    current_hour = start_time.hour
-    current_minute = start_time.minute
+    min_hour = int(min_time)
+    min_minute = int((min_time - min_hour) * 60)
+    max_hour = int(max_time)
+    max_minute = int((max_time - max_hour) * 60)
     
-    while current_hour < end_time.hour or (current_hour == end_time.hour and current_minute <= end_time.minute):
-        time_targets.append(f"{current_hour:02d}:{current_minute:02d}")
-        current_minute += interval
-        if current_minute >= 60:
-            current_hour += current_minute // 60
-            current_minute = current_minute % 60
+    st.sidebar.info(f"Rentang waktu data: {min_hour:02d}:{min_minute:02d} - {max_hour:02d}:{max_minute:02d}")
+    
+    start_time = st.sidebar.time_input(
+        "Waktu Mulai", 
+        value=time(min_hour, min_minute),
+        help=f"Waktu mulai (minimal: {min_hour:02d}:{min_minute:02d})"
+    )
+    end_time = st.sidebar.time_input(
+        "Waktu Selesai", 
+        value=time(max_hour, max_minute),
+        help=f"Waktu selesai (maksimal: {max_hour:02d}:{max_minute:02d})"
+    )
+    interval = st.sidebar.slider("Interval (menit)", 15, 120, 60)
+    
+    # Validasi rentang waktu
+    start_decimal = start_time.hour + start_time.minute/60
+    end_decimal = end_time.hour + end_time.minute/60
+    
+    if start_decimal < min_time or end_decimal > max_time:
+        st.sidebar.warning("⚠️ Rentang waktu di luar data! Hasil di luar rentang mungkin tidak akurat.")
+    
+    if start_decimal >= end_decimal:
+        st.sidebar.error("❌ Waktu mulai harus lebih kecil dari waktu selesai!")
+        time_targets = []
+    else:
+        # Generate time range
+        time_targets = []
+        current_hour = start_time.hour
+        current_minute = start_time.minute
+        
+        while current_hour < end_time.hour or (current_hour == end_time.hour and current_minute <= end_time.minute):
+            time_targets.append(f"{current_hour:02d}:{current_minute:02d}")
+            current_minute += interval
+            if current_minute >= 60:
+                current_hour += current_minute // 60
+                current_minute = current_minute % 60
+        
+        st.sidebar.success(f"✅ {len(time_targets)} titik waktu akan diestimasi")
 
 # Tombol estimasi
-if st.sidebar.button("Estimasi Suhu", type="primary"):
+if st.sidebar.button(" Estimasi Suhu", type="primary"):
     try:
         # Buat interpolator
-        interpolator = NewtonGregoryInterpolator(df_processed)
+        interpolator = NewtonGregoryInterpolasi(df_processed)
         
+        # Tampilkan tabel selisih maju
+        st.subheader("Tabel Selisih Maju Newton-Gregory")
+        diff_table = interpolator.get_difference_table()
+        
+        # Format tampilan tabel
+        styled_table = diff_table.style.format({
+            col: '{:.4f}' for col in diff_table.columns if col not in ['Waktu', 'Suhu']
+        }).format({'Suhu': '{:.1f}'})
+        
+        st.dataframe(styled_table, use_container_width=True)
+        
+        st.markdown("---")
+
         # Estimasi
         results = []
+        
         for target in time_targets:
             try:
-                temp = interpolator.estimate(target)
+                temp = interpolator.estimate_with_details(target)
                 results.append({'waktu': target, 'suhu_estimasi': round(temp, 1)})
             except Exception as e:
                 st.warning(f"Gagal estimasi untuk {target}: {e}")
@@ -96,6 +165,9 @@ if st.sidebar.button("Estimasi Suhu", type="primary"):
                 temps = results_df['suhu_estimasi']
                 st.write(f"**Rentang:** {temps.min():.1f}°C - {temps.max():.1f}°C")
                 st.write(f"**Rata-rata:** {temps.mean():.1f}°C")
+                
+                if len(temps) > 1:
+                    st.write(f"**Std Deviasi:** {temps.std():.2f}°C")
             
             with col2:
                 st.subheader("Grafik Suhu")
@@ -108,7 +180,8 @@ if st.sidebar.button("Estimasi Suhu", type="primary"):
                     y=df_processed['suhu'],
                     mode='markers+lines',
                     name='Data Asli',
-                    line=dict(color='blue')
+                    line=dict(color='blue', width=2),
+                    marker=dict(size=8, color='blue')
                 ))
                 
                 # Data estimasi
@@ -121,26 +194,65 @@ if st.sidebar.button("Estimasi Suhu", type="primary"):
                     y=results_df['suhu_estimasi'],
                     mode='markers',
                     name='Estimasi',
-                    marker=dict(size=8, color='red')
+                    marker=dict(size=10, color='red', symbol='diamond')
                 ))
                 
                 fig.update_layout(
                     xaxis_title="Waktu (jam)",
                     yaxis_title="Suhu (°C)",
-                    height=400
+                    height=400,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    xaxis=dict(showgrid=True),
+                    yaxis=dict(showgrid=True)
                 )
-                
+
                 st.plotly_chart(fig, use_container_width=True)
+            
+            st.markdown("---")
             
             # Download
             st.subheader("Download Hasil")
-            excel_data = export_to_excel(results_df, df_processed)
-            st.download_button(
-                "Download Excel",
-                data=excel_data,
-                file_name="hasil_estimasi.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            
+            col_download1, col_download2 = st.columns(2)
+            
+            with col_download1:
+                # Excel dengan detail lengkap
+                excel_data = export_to_excel(results_df, df_processed, interpolator)
+                st.download_button(
+                    "Download Excel Lengkap",
+                    data=excel_data,
+                    file_name=f"hasil_estimasi_suhu_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            with col_download2:
+                # CSV hasil estimasi
+                csv_data = results_df.to_csv(index=False)
+                st.download_button(
+                    "Download CSV Hasil",
+                    data=csv_data,
+                    file_name=f"estimasi_suhu_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+            
+            # Informasi tentang file yang akan didownload
+            st.info("""
+            **File Excel berisi:**
+            - Sheet 1: Hasil Estimasi
+            - Sheet 2: Data Asli
+            - Sheet 3: Tabel Selisih Maju
+            - Sheet 4: Ringkasan Analisis
+            """)
             
     except Exception as e:
-        st.error(f"Error dalam estimasi: {e}")
+        st.error(f"Error saat estimasi: {e}")
+        st.stop()
+
+# footer
+st.markdown("---")
+st.markdown(f"""
+<div style="text-align: center; padding: 2rem; background: rgba(255, 255, 255, 0.1); border-radius: 15px; margin-top: 2rem; color: #D6DCF5; font-family: 'Inter', sans-serif;">
+    <p> Temperature Estimation System</p>
+    <p>Powered by Newton's Gregory Forward Interpolation Algorithm | Version 3 | Last updated: {datetime.now().strftime('%Y-%m-%d')}</p>
+</div>
+""", unsafe_allow_html=True)

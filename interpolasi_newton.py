@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-class NewtonGregoryInterpolator:
+class NewtonGregoryInterpolasi:
     """Interpolasi Newton-Gregory maju untuk estimasi suhu"""
     
     def __init__(self, data):
@@ -15,6 +15,9 @@ class NewtonGregoryInterpolator:
         
         # Hitung tabel selisih maju
         self.diff_table = self._calculate_differences()
+        
+        # Simpan detail perhitungan
+        self.calculation_details = []
     
     def _calculate_differences(self):
         """Hitung tabel selisih maju"""
@@ -36,10 +39,32 @@ class NewtonGregoryInterpolator:
             result *= (u - i) / (i + 1)
         return result
     
-    def estimate(self, target_time):
-        """Estimasi suhu untuk waktu target"""
+    def get_difference_table(self):
+        """Dapatkan tabel selisih maju dalam format DataFrame"""
+        columns = ['y'] + [f'Δ^{i}y' for i in range(1, self.n)]
+        
+        # Buat tabel dengan NaN untuk sel kosong
+        table_display = np.full((self.n, self.n), np.nan)
+        for i in range(self.n):
+            for j in range(self.n - i):
+                table_display[i, j] = self.diff_table[i, j]
+        
+        df_table = pd.DataFrame(table_display, columns=columns[:self.n])
+        df_table.index = [f'x{i}' for i in range(self.n)]
+        df_table['Waktu'] = self.data['waktu'].values
+        df_table['Suhu'] = self.data['suhu'].values
+        
+        # Reorder columns
+        cols = ['Waktu', 'Suhu'] + [col for col in df_table.columns if col not in ['Waktu', 'Suhu']]
+        return df_table[cols]
+    
+    def estimate_with_details(self, target_time):
+        """Estimasi suhu untuk waktu target dengan detail perhitungan"""
         if self.n < 2:
             raise ValueError("Minimal 2 titik data diperlukan")
+        
+        # Reset detail perhitungan
+        self.calculation_details = []
         
         # Konversi waktu ke decimal
         try:
@@ -59,16 +84,62 @@ class NewtonGregoryInterpolator:
         x0 = self.x[x0_idx]
         u = (x_target - x0) / self.h
         
+        # Simpan detail awal
+        self.calculation_details.append({
+            'step': 'Parameter Dasar',
+            'description': f'x₀ = {x0:.2f}, h = {self.h:.2f}, u = (x - x₀)/h = ({x_target:.2f} - {x0:.2f})/{self.h:.2f} = {u:.4f}',
+            'value': u
+        })
+        
         # Interpolasi Newton-Gregory
         result = self.diff_table[x0_idx, 0]  # y0
         
+        self.calculation_details.append({
+            'step': 'Suku ke-0',
+            'description': f'y₀ = {result:.4f}',
+            'value': result
+        })
+        
         # Tambahkan suku-suku berikutnya
         max_terms = min(self.n - x0_idx, 5)  # Batasi untuk stabilitas
+        total_correction = 0
         
         for i in range(1, max_terms):
             if x0_idx + i < self.n:
                 coeff = self._binomial_coeff(u, i)
                 diff = self.diff_table[x0_idx, i]
-                result += coeff * diff
+                correction = coeff * diff
+                total_correction += correction
+                
+                # Format binomial coefficient
+                binom_str = self._format_binomial(u, i)
+                
+                self.calculation_details.append({
+                    'step': f'Suku ke-{i}',
+                    'description': f'{binom_str} × Δ^{i}y₀ = {coeff:.6f} × {diff:.4f} = {correction:.6f}',
+                    'value': correction
+                })
         
-        return result
+        final_result = result + total_correction
+        
+        self.calculation_details.append({
+            'step': 'Hasil Akhir',
+            'description': f'y = {result:.4f} + {total_correction:.6f} = {final_result:.4f}',
+            'value': final_result
+        })
+        
+        return final_result
+    
+    def _format_binomial(self, u, n):
+        """Format koefisien binomial untuk tampilan"""
+        if n == 1:
+            return f'u'
+        elif n == 2:
+            return f'u(u-1)/2!'
+        elif n == 3:
+            return f'u(u-1)(u-2)/3!'
+        else:
+            terms = '×'.join([f'(u-{i})' for i in range(n)])
+            return f'u×{terms}/{n}!'
+    
+ 
