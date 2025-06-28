@@ -23,8 +23,8 @@ uploaded_file = st.sidebar.file_uploader("Upload file CSV/Excel", type=['csv', '
 if uploaded_file is None:
     # Data contoh
     sample_data = pd.DataFrame({
-        'waktu': ['06:00', '09:00', '12:00', '15:00', '18:00', '21:00'],
-        'suhu': [22.5, 25.8, 31.2, 33.7, 28.4, 24.1]
+        'waktu': ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'],
+        'suhu': [22.5, 23.8, 25.1, 26.4 , 27.7, 29]
     })
     df = sample_data
     st.sidebar.info("Menggunakan data contoh")
